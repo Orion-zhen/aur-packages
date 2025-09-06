@@ -43,6 +43,9 @@ prepare() {
 }
 
 build() {
+  if [[ -z "${ROCM_PATH}" ]]; then
+    source /etc/profile
+  fi
   export CC=/opt/rocm/llvm/bin/clang
   export CXX=/opt/rocm/llvm/bin/clang++
   local _cmake_options=(
