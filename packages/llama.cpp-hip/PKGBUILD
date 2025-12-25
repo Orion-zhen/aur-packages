@@ -85,7 +85,14 @@ build() {
       -DGGML_BACKEND_DL=ON
       -DGGML_CPU_ALL_VARIANTS=ON
       -DGGML_NATIVE=OFF
-      -DAMDGPU_TARGETS="gfx803;gfx900;gfx906;gfx908;gfx90a;gfx942;gfx1010;gfx1030;gfx1032;gfx1100;gfx1101;gfx1102;gfx1200;gfx1201;gfx1151"
+      # https://llvm.org/docs/AMDGPUUsage.html
+      # gfx906: MI 50/60, Radeon VII
+      # gfx 101x RX 5000 Series
+      # gfx 103x RX 6000 Series
+      # gfx 110x RX 7000 Series
+      # gfx 1151 Strix Halo
+      # gfx 120x RX 9000 Series
+      -DAMDGPU_TARGETS="gfx906;gfx1010;gfx1030;gfx1031;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201"
     )
   else
     # 本地构建, 针对当前设备优化
