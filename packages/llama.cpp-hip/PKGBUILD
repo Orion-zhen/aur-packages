@@ -87,11 +87,11 @@ build() {
       -DGGML_NATIVE=OFF
       # https://llvm.org/docs/AMDGPUUsage.html
       # gfx906: MI 50/60, Radeon VII
-      # gfx 101x RX 5000 Series
-      # gfx 103x RX 6000 Series
-      # gfx 110x RX 7000 Series
-      # gfx 1151 Strix Halo
-      # gfx 120x RX 9000 Series
+      # gfx101x: RX 5000 Series
+      # gfx103x: RX 6000 Series
+      # gfx110x: RX 7000 Series
+      # gfx1151: Strix Halo
+      # gfx120x: RX 9000 Series
       -DAMDGPU_TARGETS="gfx906;gfx1010;gfx1030;gfx1031;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201"
     )
   else
