@@ -179,32 +179,48 @@ jobs:
         if: ${{ steps.check_changes.outputs.push_to_github }}
         working-directory: ${{ env.PACKAGE_ROOT }}/${{ matrix.package }}
         env:
-          # GITHUB_TOKEN是Actions自动提供的，用于gh命令的认证
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PACKAGE_PATH: ${{ env.PACKAGE_ROOT }}/${{ matrix.package }}
         run: |
-          echo "1/3: 获取远程SHA..."
-          REMOTE_SHA=$(gh api "repos/${{ github.repository }}/contents/${{ env.PACKAGE_PATH }}/PKGBUILD" --jq .sha || echo "null")
-          if [[ "$REMOTE_SHA" == "null" ]]; then
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          
+          while [[ $RETRY_COUNT -lt $MAX_RETRIES ]]; do
+            echo "尝试 $((RETRY_COUNT + 1))/$MAX_RETRIES: 获取远程SHA..."
+            # 每次重试都重新获取SHA，避免并行推送导致的竞态条件
+            REMOTE_SHA=$(gh api "repos/${{ github.repository }}/contents/${{ env.PACKAGE_PATH }}/PKGBUILD" --jq .sha 2>/dev/null || echo "null")
+            
+            if [[ "$REMOTE_SHA" == "null" ]]; then
               echo "  - 远程文件不存在，将进行创建操作。"
-          else
+            else
               echo "  - 成功获取SHA: ${REMOTE_SHA:0:12}..."
-          fi
-
-          echo "2/3: Base64编码本地文件..."
-          LOCAL_CONTENT_B64=$(base64 -w0 "PKGBUILD")
-
-          echo "3/3: 推送更新到GitHub..."
-          REQUEST_BODY="{\"message\": \"${{ steps.get_version_info.outputs.commit_msg }}\", \"content\": \"$LOCAL_CONTENT_B64\""
-          if [[ "$REMOTE_SHA" != "null" ]]; then
+            fi
+            
+            LOCAL_CONTENT_B64=$(base64 -w0 "PKGBUILD")
+            
+            REQUEST_BODY="{\"message\": \"${{ steps.get_version_info.outputs.commit_msg }}\", \"content\": \"$LOCAL_CONTENT_B64\""
+            if [[ "$REMOTE_SHA" != "null" ]]; then
               REQUEST_BODY="$REQUEST_BODY, \"sha\": \"$REMOTE_SHA\""
-          fi
-          REQUEST_BODY="$REQUEST_BODY}"
-
-          gh api --method PUT "repos/${{ github.repository }}/contents/${{ env.PACKAGE_PATH }}/PKGBUILD" \
-            --input - <<< "$REQUEST_BODY" > /dev/null
-
-          echo "  - '${{ env.PACKAGE_PATH }}/PKGBUILD' 同步成功!"
+            fi
+            REQUEST_BODY="$REQUEST_BODY}"
+            
+            if gh api --method PUT "repos/${{ github.repository }}/contents/${{ env.PACKAGE_PATH }}/PKGBUILD" \
+              --input - <<< "$REQUEST_BODY" > /dev/null 2>&1; then
+              echo "  - '${{ env.PACKAGE_PATH }}/PKGBUILD' 同步成功!"
+              exit 0
+            fi
+            
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            if [[ $RETRY_COUNT -lt $MAX_RETRIES ]]; then
+              # 指数退避 + 随机抖动: 2^retry + 0~1秒随机
+              BACKOFF=$((2 ** RETRY_COUNT + RANDOM % 2))
+              echo "  - 推送失败 (HTTP 409 竞态条件), ${BACKOFF}秒后重试..."
+              sleep $BACKOFF
+            fi
+          done
+          
+          echo "::error::推送失败，已达最大重试次数 ($MAX_RETRIES)"
+          exit 1
 
       - name: Publish to AUR
         if: ${{ inputs.force-push || steps.check_changes.outputs.publish_to_aur }}
