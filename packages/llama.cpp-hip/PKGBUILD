@@ -56,6 +56,8 @@ build() {
   fi
   export CC=/opt/rocm/llvm/bin/clang
   export CXX=/opt/rocm/llvm/bin/clang++
+  export HIP_PLATFORM=amd
+
   local _cmake_options=(
     -B build
     -S "${_pkgname}"
