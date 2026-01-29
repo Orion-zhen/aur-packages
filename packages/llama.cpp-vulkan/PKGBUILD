@@ -64,6 +64,7 @@ build() {
     -DGGML_RPC=ON
     -DGGML_VULKAN=ON
     -DGGML_CUDA_FA_ALL_QUANTS=ON
+    -DLLAMA_BUILD_NUMBER="${pkgver#b}" # 修正版本号
     -Wno-dev
   )
 
