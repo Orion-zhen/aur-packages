@@ -73,7 +73,7 @@ jobs:
         run: |
           if [[ -f ".nvchecker.toml" ]]; then
             echo "--> Found .nvchecker.toml in ${{ matrix.package }}, using 'pkgctl version upgrade'."
-            pkgctl version upgrade --verbose
+            pkgctl version upgrade
             # # 使用 nvchecker 获取新版本
             # REMOTE_VERSION=$(nvchecker -c .nvchecker.toml --logger json | jq -r 'select(.version) | .version')
 
