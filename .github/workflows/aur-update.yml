@@ -73,36 +73,37 @@ jobs:
         run: |
           if [[ -f ".nvchecker.toml" ]]; then
             echo "--> Found .nvchecker.toml in ${{ matrix.package }}, using 'pkgctl version upgrade'."
-            # 使用 nvchecker 获取新版本
-            REMOTE_VERSION=$(nvchecker -c .nvchecker.toml --logger json | jq -r 'select(.version) | .version')
+            pkgctl version upgrade --verbose
+            # # 使用 nvchecker 获取新版本
+            # REMOTE_VERSION=$(nvchecker -c .nvchecker.toml --logger json | jq -r 'select(.version) | .version')
 
-            if [[ -z "$REMOTE_VERSION" ]]; then
-              echo "::error::Failed to get new version from nvchecker."
-              exit 1
-            fi
+            # if [[ -z "$REMOTE_VERSION" ]]; then
+            #   echo "::error::Failed to get new version from nvchecker."
+            #   exit 1
+            # fi
 
-            echo "--> Remote Version: $REMOTE_VERSION"
+            # echo "--> Remote Version: $REMOTE_VERSION"
 
-            CURRENT_VERSION=$(grep -m1 '^pkgver=' PKGBUILD | cut -d'=' -f2)
+            # CURRENT_VERSION=$(grep -m1 '^pkgver=' PKGBUILD | cut -d'=' -f2)
 
-            echo "--> PKGBUILD Version: $CURRENT_VERSION"
+            # echo "--> PKGBUILD Version: $CURRENT_VERSION"
 
-            if (( $(vercmp "$REMOTE_VERSION" "$CURRENT_VERSION") > 0 )); then
-              echo "Update available, updating PKGBUILD..."
+            # if (( $(vercmp "$REMOTE_VERSION" "$CURRENT_VERSION") > 0 )); then
+            #   echo "Update available, updating PKGBUILD..."
               
-              # 更新 PKGBUILD 文件中的 pkgver
-              sed -i "s/^pkgver=.*/pkgver=$REMOTE_VERSION/" PKGBUILD
-              echo "  - pkgver: $REMOTE_VERSION"
+            #   # 更新 PKGBUILD 文件中的 pkgver
+            #   sed -i "s/^pkgver=.*/pkgver=$REMOTE_VERSION/" PKGBUILD
+            #   echo "  - pkgver: $REMOTE_VERSION"
               
-              # 将 pkgrel 重置为 1
-              sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
-              echo "  - pkgrel reset to 1"
+            #   # 将 pkgrel 重置为 1
+            #   sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+            #   echo "  - pkgrel reset to 1"
               
-              # --- 运行 updpkgsums ---
-              echo "Updating Checksums..."
-              updpkgsums
+            #   # --- 运行 updpkgsums ---
+            #   echo "Updating Checksums..."
+            #   updpkgsums
               
-              echo "Updated PKGBUILD successfully."
+            #   echo "Updated PKGBUILD successfully."
             fi
 
           else
