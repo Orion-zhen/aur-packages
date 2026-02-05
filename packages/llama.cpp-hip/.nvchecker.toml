@@ -1,4 +1,4 @@
 ["llama.cpp-hip"]
 source = "git"
-git = "https://github.com/ggerganov/llama.cpp.git"
+git = "https://github.com/ggml-org/llama.cpp.git"
 include_regex = "b\\d+"
