@@ -20,7 +20,6 @@ depends=(
   hipblas
   openmp
   rocblas
-  rocwmma
   vulkan-icd-loader
 )
 makedepends=(
@@ -88,7 +87,7 @@ build() {
     # ROCm part
     -DGGML_HIP=ON
     -DGGML_HIP_GRAPHS=ON
-    -DGGML_HIP_ROCWMMA_FATTN=ON
+    # -DGGML_HIP_ROCWMMA_FATTN=ON # 对线性注意力优化
     -DHIP_PLATFORM=amd # 手动指定 AMD 平台, 防止因 rocm-nightly 禁用自动检测而报错
     # Vulkan part
     -DGGML_VULKAN=ON
