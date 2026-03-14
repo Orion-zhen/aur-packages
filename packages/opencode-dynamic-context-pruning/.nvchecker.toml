@@ -1,0 +1,5 @@
+["opencode-dynamic-context-pruning"]
+source = "git"
+git = "https://github.com/Opencode-DCP/opencode-dynamic-context-pruning"
+include_regex = "v.*"
+prefix = "v"
