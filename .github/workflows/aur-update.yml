@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Generate package list
         id: set_matrix
@@ -66,7 +66,7 @@ jobs:
           sed -i '/E_ROOT/d' /usr/bin/makepkg
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Update PKGBUILD
         working-directory: ${{ env.PACKAGE_ROOT }}/${{ matrix.package }}
