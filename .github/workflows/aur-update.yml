@@ -226,7 +226,7 @@ jobs:
 
       - name: Publish to AUR
         if: ${{ inputs.force-push || steps.check_changes.outputs.publish_to_aur }}
-        uses: KSXGitHub/github-actions-deploy-aur@v4.1.1
+        uses: KSXGitHub/github-actions-deploy-aur@v4.1.2
         with:
           pkgname: ${{ matrix.package }}
           pkgbuild: ${{ env.PACKAGE_ROOT }}/${{ matrix.package }}/PKGBUILD
