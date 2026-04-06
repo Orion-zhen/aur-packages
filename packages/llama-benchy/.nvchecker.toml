@@ -1,0 +1,5 @@
+["llama-benchy"]
+source = "git"
+git = "https://github.com/eugr/llama-benchy.git"
+include_regex = "v\\d+\\.\\d+\\.\\d+"
+prefix = "v"
