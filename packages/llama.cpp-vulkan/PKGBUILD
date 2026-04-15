@@ -21,6 +21,7 @@ makedepends=(
   git
   shaderc
   vulkan-headers
+  spirv-headers
 )
 optdepends=(
   'python-numpy: needed for convert_hf_to_gguf.py'
