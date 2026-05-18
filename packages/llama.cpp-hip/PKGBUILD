@@ -22,6 +22,8 @@ depends=(
 makedepends=(
   cmake
   git
+  nodejs
+  npm
   rocm-hip-sdk
 )
 optdepends=(
@@ -50,6 +52,11 @@ prepare() {
 }
 
 build() {
+  pushd "${_pkgname}/tools/ui"
+  npm ci
+  npm run build
+  popd
+
   if [[ -z "${ROCM_PATH}" ]]; then
     source /etc/profile
   fi
