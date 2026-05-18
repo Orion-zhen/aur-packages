@@ -20,6 +20,8 @@ depends=(
 makedepends=(
   cmake
   git
+  nodejs
+  npm
   shaderc
   vulkan-headers
   spirv-headers
@@ -55,6 +57,11 @@ prepare() {
 }
 
 build() {
+  pushd "${_pkgname}/tools/ui"
+  npm ci
+  npm run build
+  popd
+
   # 配置环境
   if [[ -z "${ROCM_PATH}" ]]; then
     source /etc/profile
