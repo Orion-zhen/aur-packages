@@ -3,7 +3,7 @@
 pkgname=llama.cpp-gfx1151
 _pkgname=${pkgname%%-gfx1151}
 pkgver=b9222
-pkgrel=3
+pkgrel=4
 pkgdesc="Port of Facebook's LLaMA model in C/C++ (Optimized for gfx1151, ROCm + Vulkan)"
 arch=(x86_64 armv7h aarch64)
 url='https://github.com/ggml-org/llama.cpp'
@@ -20,8 +20,8 @@ depends=(
 makedepends=(
   cmake
   git
-  # nodejs
-  # npm
+  nodejs
+  npm
   shaderc
   vulkan-headers
   spirv-headers
