@@ -4,7 +4,7 @@
 pkgname=llama.cpp-vulkan
 _pkgname=${pkgname%%-vulkan}
 pkgver=b9297
-pkgrel=1
+pkgrel=2
 pkgdesc="Port of Facebook's LLaMA model in C/C++ (with Vulkan GPU optimizations)"
 arch=(x86_64 armv7h aarch64)
 url='https://github.com/ggml-org/llama.cpp'
@@ -56,11 +56,28 @@ prepare() {
   # the built bundle.css ships without any utility classes. An empty .git in
   # the extracted source tree stops the upward walk before that point.
   mkdir -p "${_pkgname}/.git"
+
+  # Inject npm overrides into tools/ui/package.json to fix audit vulnerabilities
+  # (cookie <0.7.0 via @sveltejs/kit, qs <6.15.2 via storybook stack).
+  # Caret-ranges keep us on the current patched major and prevent the
+  # regenerated lockfile from drifting to a future breaking release.
+  python - "${_pkgname}/tools/ui/package.json" <<'PY'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+d = json.loads(p.read_text())
+d.setdefault("overrides", {})
+d["overrides"]["cookie"] = "^0.7.0"
+d["overrides"]["qs"] = "^6.15.2"
+p.write_text(json.dumps(d, indent=2) + "\n")
+PY
 }
 
 build() {
   pushd "${_pkgname}/tools/ui"
-  npm ci
+  # Regenerate the lockfile so it incorporates the security overrides, then do
+  # a strict, deterministic install via npm ci.
+  npm install --package-lock-only --no-audit --no-fund
+  npm ci --no-audit --no-fund
   npm run build
   popd
 
