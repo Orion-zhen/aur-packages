@@ -14,7 +14,9 @@ depends=(
   glibc
   python
   openmp
-  rocm-nightly-gfx1151-bin
+  hip-runtime-amd
+  hipblas
+  rocblas
   vulkan-icd-loader
 )
 makedepends=(
@@ -25,6 +27,7 @@ makedepends=(
   shaderc
   vulkan-headers
   spirv-headers
+  rocm-hip-sdk
 )
 optdepends=(
   'python-numpy: needed for convert_hf_to_gguf.py'
