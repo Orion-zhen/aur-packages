@@ -3,7 +3,7 @@
 pkgname=llama.cpp-gfx1151
 _pkgname=${pkgname%%-gfx1151}
 pkgver=b9768
-pkgrel=1
+pkgrel=2
 pkgdesc="Port of Facebook's LLaMA model in C/C++ (Optimized for gfx1151, ROCm + Vulkan)"
 arch=(x86_64 armv7h aarch64)
 url='https://github.com/ggml-org/llama.cpp'
@@ -37,8 +37,8 @@ optdepends=(
   'python-transformers: needed for convert_hf_to_gguf.py'
   'python-gguf: needed for convert_hf_to_gguf.py'
 )
-provides=(${_pkgname} ${_pkgname}-hip ${_pkgname}-vulkan)
-conflicts=(${_pkgname} ${_pkgname}-hip ${_pkgname}-vulkan libggml ggml stable-diffusion.cpp)
+provides=(${_pkgname} ${_pkgname}-hip ${_pkgname}-vulkan llama-cpp libggml ggml ggml-rocm ggml-vulkan)
+conflicts=(${_pkgname} ${_pkgname}-hip ${_pkgname}-vulkan llama-cpp libggml ggml ggml-rocm ggml-vulkan stable-diffusion.cpp)
 options=(lto !debug)
 backup=("etc/conf.d/llama.cpp")
 source=(
