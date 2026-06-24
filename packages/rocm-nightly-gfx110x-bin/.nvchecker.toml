@@ -1,4 +1,4 @@
 [rocm-nightly-gfx110x-bin]
 source = "regex"
-url = "https://rocm.nightlies.amd.com/tarball/"
+url = "https://rocm.nightlies.amd.com/tarball-multi-arch/"
 regex = 'therock-dist-linux-gfx110X-all-([0-9a-z.]+)\.tar\.gz'

@@ -33,7 +33,7 @@ _rocm_packages=(
 provides=("${_rocm_packages[@]}" "rocm=${pkgver}" "opencl-driver")
 conflicts=("${_rocm_packages[@]}" "rocm")
 options=('!strip' '!debug')
-source=("${url}/tarball/therock-dist-linux-${_gpuarch}-${pkgver}.tar.gz")
+source=("${url}/tarball-multi-arch/therock-dist-linux-${_gpuarch}-${pkgver}.tar.gz")
 sha256sums=('0a724aed8cd30c410bc9a70f216c921d9e135ffc0b64317b9d4ef8b9ad2a877b')
 
 package() {
