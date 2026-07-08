@@ -116,29 +116,22 @@ jobs:
       - name: Check for PKGBUILD changes
         id: check_changes
         working-directory: ${{ env.PACKAGE_ROOT }}/${{ matrix.package }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PACKAGE_PATH: ${{ env.PACKAGE_ROOT }}/${{ matrix.package }}
         run: |
-          echo "--> Comparing SHA hash for ${{ matrix.package }}..."
+          echo "--> Checking PKGBUILD changes for ${{ matrix.package }}..."
 
           # 1. 使用 git hash-object 计算本地 PKGBUILD 的SHA哈希值
           LOCAL_SHA=$(git hash-object PKGBUILD)
           echo "  - Local  file SHA: ${LOCAL_SHA}"
 
-          # 2. 从GitHub API获取远程文件的SHA哈希值
-          REMOTE_SHA=$(gh api "repos/${{ github.repository }}/contents/${{ env.PACKAGE_PATH }}/PKGBUILD" --jq .sha || echo "null")
-          echo "  - Remote file SHA: ${REMOTE_SHA}"
-
-          # 3. 比较两个哈希值
-          if [[ "${LOCAL_SHA}" != "${REMOTE_SHA}" ]]; then
-            echo "  - SHAs do not match. Change detected."
+          # 2. 检查本次运行是否修改了 PKGBUILD。GitHub 提交会在汇总 job 中统一完成。
+          if ! git diff --quiet -- PKGBUILD; then
+            echo "  - Local PKGBUILD changed. It will be included in the batched GitHub commit."
             echo "push_to_github=true" >> $GITHUB_OUTPUT
           else
-            echo "  - SHAs match. No changes detected. Sync will be skipped."
+            echo "  - No local PKGBUILD changes. GitHub sync will be skipped for this package."
           fi
 
-          # 4. 检查 AUR 上的 PKGBUILD
+          # 3. 检查 AUR 上的 PKGBUILD
           if git clone https://aur.archlinux.org/${{ matrix.package }}.git aur-tmp &>/dev/null; then
             # 如果成功克隆
             if [[ -f aur-tmp/PKGBUILD ]]; then
@@ -176,53 +169,13 @@ jobs:
           echo "commit_msg=$COMMIT_MSG" >> $GITHUB_OUTPUT
           echo "--> Generated commit message: ${COMMIT_MSG}"
 
-      - name: Sync changes to GitHub
-        id: sync_to_github
+      - name: Upload changed PKGBUILD
         if: ${{ steps.check_changes.outputs.push_to_github }}
-        working-directory: ${{ env.PACKAGE_ROOT }}/${{ matrix.package }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PACKAGE_PATH: ${{ env.PACKAGE_ROOT }}/${{ matrix.package }}
-        run: |
-          MAX_RETRIES=5
-          RETRY_COUNT=0
-          
-          while [[ $RETRY_COUNT -lt $MAX_RETRIES ]]; do
-            echo "尝试 $((RETRY_COUNT + 1))/$MAX_RETRIES: 获取远程SHA..."
-            # 每次重试都重新获取SHA，避免并行推送导致的竞态条件
-            REMOTE_SHA=$(gh api "repos/${{ github.repository }}/contents/${{ env.PACKAGE_PATH }}/PKGBUILD" --jq .sha 2>/dev/null || echo "null")
-            
-            if [[ "$REMOTE_SHA" == "null" ]]; then
-              echo "  - 远程文件不存在，将进行创建操作。"
-            else
-              echo "  - 成功获取SHA: ${REMOTE_SHA:0:12}..."
-            fi
-            
-            LOCAL_CONTENT_B64=$(base64 -w0 "PKGBUILD")
-            
-            REQUEST_BODY="{\"message\": \"${{ steps.get_version_info.outputs.commit_msg }}\", \"content\": \"$LOCAL_CONTENT_B64\""
-            if [[ "$REMOTE_SHA" != "null" ]]; then
-              REQUEST_BODY="$REQUEST_BODY, \"sha\": \"$REMOTE_SHA\""
-            fi
-            REQUEST_BODY="$REQUEST_BODY}"
-            
-            if gh api --method PUT "repos/${{ github.repository }}/contents/${{ env.PACKAGE_PATH }}/PKGBUILD" \
-              --input - <<< "$REQUEST_BODY" > /dev/null 2>&1; then
-              echo "  - '${{ env.PACKAGE_PATH }}/PKGBUILD' 同步成功!"
-              exit 0
-            fi
-            
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-            if [[ $RETRY_COUNT -lt $MAX_RETRIES ]]; then
-              # 指数退避 + 随机抖动: 2^retry + 0~1秒随机
-              BACKOFF=$((2 ** RETRY_COUNT + RANDOM % 2))
-              echo "  - 推送失败 (HTTP 409 竞态条件), ${BACKOFF}秒后重试..."
-              sleep $BACKOFF
-            fi
-          done
-          
-          echo "::error::推送失败，已达最大重试次数 ($MAX_RETRIES)"
-          exit 1
+        uses: actions/upload-artifact@v7
+        with:
+          name: pkgbuild-${{ matrix.package }}
+          path: ${{ env.PACKAGE_ROOT }}/${{ matrix.package }}/PKGBUILD
+          retention-days: 1
 
       - name: Publish to AUR
         if: ${{ inputs.force-push || steps.check_changes.outputs.publish_to_aur }}
@@ -234,3 +187,88 @@ jobs:
           commit_email: github-action-bot@no-reply.com
           commit_message: ${{ steps.get_version_info.outputs.commit_msg || 'Force Update' }}
           ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+
+  sync-github:
+    needs: update-and-sync
+    if: ${{ always() && needs.update-and-sync.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Download changed PKGBUILDs
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: pkgbuild-*
+          path: .aur-updates
+
+      - name: Apply changed PKGBUILDs
+        id: apply_changes
+        env:
+          PACKAGE_ROOT: ${{ env.PACKAGE_ROOT }}
+        run: |
+          shopt -s nullglob
+          UPDATED_PACKAGES=()
+
+          for artifact_dir in .aur-updates/pkgbuild-*; do
+            package="${artifact_dir##*/pkgbuild-}"
+            pkgbuild="${artifact_dir}/PKGBUILD"
+
+            if [[ ! -f "$pkgbuild" ]]; then
+              continue
+            fi
+
+            echo "--> Applying PKGBUILD update for ${package}"
+            cp "$pkgbuild" "${PACKAGE_ROOT}/${package}/PKGBUILD"
+            UPDATED_PACKAGES+=("$package")
+          done
+
+          if [[ "${#UPDATED_PACKAGES[@]}" -eq 0 ]]; then
+            echo "No changed PKGBUILD artifacts found."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git diff --quiet -- "$PACKAGE_ROOT"; then
+            echo "Downloaded artifacts do not change the checkout."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          {
+            echo "updated_packages<<EOF"
+            printf '%s\n' "${UPDATED_PACKAGES[@]}"
+            echo "EOF"
+            echo "has_changes=true"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push batched PKGBUILD updates
+        if: ${{ steps.apply_changes.outputs.has_changes == 'true' }}
+        env:
+          UPDATED_PACKAGES: ${{ steps.apply_changes.outputs.updated_packages }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git pull --rebase --autostash origin "${{ github.ref_name }}"
+
+          if git diff --quiet -- "${{ env.PACKAGE_ROOT }}"; then
+            echo "No changes remain after rebasing onto the latest remote branch."
+            exit 0
+          fi
+
+          git add "${{ env.PACKAGE_ROOT }}"
+
+          {
+            echo ":bookmark: Bump AUR package versions"
+            echo
+            echo "Updated packages:"
+            printf '%s\n' "$UPDATED_PACKAGES" | sed 's/^/- /'
+          } > commit-message.txt
+
+          git commit -F commit-message.txt
+          git push
