@@ -44,7 +44,7 @@ jobs:
           else
             echo "Discovered packages: $PACKAGE_LIST"
           fi
-          echo "packages=$PACKAGE_LIST" >> $GITHUB_OUTPUT
+          echo "packages=$PACKAGE_LIST" >> "$GITHUB_OUTPUT"
 
 
   update-and-sync:
@@ -126,7 +126,7 @@ jobs:
           # 2. 检查本次运行是否修改了 PKGBUILD。GitHub 提交会在汇总 job 中统一完成。
           if ! git diff --quiet -- PKGBUILD; then
             echo "  - Local PKGBUILD changed. It will be included in the batched GitHub commit."
-            echo "push_to_github=true" >> $GITHUB_OUTPUT
+            echo "push_to_github=true" >> "$GITHUB_OUTPUT"
           else
             echo "  - No local PKGBUILD changes. GitHub sync will be skipped for this package."
           fi
@@ -141,19 +141,19 @@ jobs:
               # 这里使用等于来检查, 是因为必须保证 AUR 上的软件包都与本仓库中的严格同步
               if [[ "${LOCAL_SHA}" != "${AUR_SHA}" ]]; then
                 echo "  - SHAs do not match. Change detected."
-                echo "publish_to_aur=true" >> $GITHUB_OUTPUT
+                echo "publish_to_aur=true" >> "$GITHUB_OUTPUT"
               else
                 echo "  - SHAs match. No changes detected. Publish will be skipped."
               fi
             else
               # 一般来说, 如果 AUR 上不存在软件包, 克隆下来的是个空仓库
               echo "  - Empty AUR repository."
-              echo "publish_to_aur=true" >> $GITHUB_OUTPUT
+              echo "publish_to_aur=true" >> "$GITHUB_OUTPUT"
             fi
             rm -rf aur-tmp
           else
             echo "  - Package does not exist on AUR yet."
-            echo "publish_to_aur=true" >> $GITHUB_OUTPUT
+            echo "publish_to_aur=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Get version info
@@ -166,7 +166,7 @@ jobs:
           NEW_VERSION=$(grep -m1 '^pkgver=' PKGBUILD | cut -d'=' -f2)
           NEW_PKGREL=$(grep -m1 '^pkgrel=' PKGBUILD | cut -d'=' -f2)
           COMMIT_MSG=":bookmark: Bump ${PKGNAME} version to ${NEW_VERSION}-${NEW_PKGREL}"
-          echo "commit_msg=$COMMIT_MSG" >> $GITHUB_OUTPUT
+          echo "commit_msg=$COMMIT_MSG" >> "$GITHUB_OUTPUT"
           echo "--> Generated commit message: ${COMMIT_MSG}"
 
       - name: Upload changed PKGBUILD
@@ -246,29 +246,108 @@ jobs:
             echo "has_changes=true"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Commit and push batched PKGBUILD updates
+      - name: Commit batched PKGBUILD updates with GitHub signing
         if: ${{ steps.apply_changes.outputs.has_changes == 'true' }}
+        uses: actions/github-script@v9
         env:
+          PACKAGE_ROOT: ${{ env.PACKAGE_ROOT }}
           UPDATED_PACKAGES: ${{ steps.apply_changes.outputs.updated_packages }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        with:
+          script: |
+            const fs = require('fs');
 
-          git pull --rebase --autostash origin "${{ github.ref_name }}"
+            const packageRoot = process.env.PACKAGE_ROOT;
+            const updatedPackages = process.env.UPDATED_PACKAGES
+              .split(/\r?\n/)
+              .map((name) => name.trim())
+              .filter(Boolean);
 
-          if git diff --quiet -- "${{ env.PACKAGE_ROOT }}"; then
-            echo "No changes remain after rebasing onto the latest remote branch."
-            exit 0
-          fi
+            if (updatedPackages.length === 0) {
+              core.info('No updated packages found.');
+              return;
+            }
 
-          git add "${{ env.PACKAGE_ROOT }}"
+            const branchName = process.env.GITHUB_REF_NAME;
+            const repositoryNameWithOwner = `${context.repo.owner}/${context.repo.repo}`;
+            const refName = `refs/heads/${branchName}`;
 
-          {
-            echo ":bookmark: Bump AUR package versions"
-            echo
-            echo "Updated packages:"
-            printf '%s\n' "$UPDATED_PACKAGES" | sed 's/^/- /'
-          } > commit-message.txt
+            const head = await github.graphql(`
+              query($owner: String!, $repo: String!, $refName: String!) {
+                repository(owner: $owner, name: $repo) {
+                  ref(qualifiedName: $refName) {
+                    target {
+                      ... on Commit {
+                        oid
+                      }
+                    }
+                  }
+                }
+              }
+            `, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              refName,
+            });
 
-          git commit -F commit-message.txt
-          git push
+            const expectedHeadOid = head.repository.ref?.target?.oid;
+            if (!expectedHeadOid) {
+              throw new Error(`Could not resolve ${refName}.`);
+            }
+
+            const additions = updatedPackages.map((packageName) => {
+              const filePath = `${packageRoot}/${packageName}/PKGBUILD`;
+
+              if (!fs.existsSync(filePath)) {
+                throw new Error(`Expected updated PKGBUILD does not exist: ${filePath}`);
+              }
+
+              return {
+                path: filePath,
+                contents: fs.readFileSync(filePath).toString('base64'),
+              };
+            });
+
+            const body = [
+              'Updated packages:',
+              ...updatedPackages.map((packageName) => `- ${packageName}`),
+            ].join('\n');
+
+            const result = await github.graphql(`
+              mutation(
+                $repositoryNameWithOwner: String!,
+                $branchName: String!,
+                $expectedHeadOid: GitObjectID!,
+                $additions: [FileAddition!]!,
+                $body: String!
+              ) {
+                createCommitOnBranch(input: {
+                  branch: {
+                    repositoryNameWithOwner: $repositoryNameWithOwner,
+                    refName: $branchName
+                  },
+                  message: {
+                    headline: ":bookmark: Bump AUR package versions",
+                    body: $body
+                  },
+                  fileChanges: {
+                    additions: $additions
+                  },
+                  expectedHeadOid: $expectedHeadOid
+                }) {
+                  commit {
+                    oid
+                    url
+                  }
+                }
+              }
+            `, {
+              repositoryNameWithOwner,
+              branchName,
+              expectedHeadOid,
+              additions,
+              body,
+            });
+
+            const commit = result.createCommitOnBranch.commit;
+            core.info(`Created signed GitHub commit: ${commit.oid}`);
+            core.info(commit.url);
