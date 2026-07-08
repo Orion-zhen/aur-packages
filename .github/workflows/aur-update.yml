@@ -338,7 +338,7 @@ jobs:
                 createCommitOnBranch(input: {
                   branch: {
                     repositoryNameWithOwner: $repositoryNameWithOwner,
-                    refName: $branchName
+                    branchName: $branchName
                   },
                   message: {
                     headline: ":bookmark: Bump AUR package versions",
