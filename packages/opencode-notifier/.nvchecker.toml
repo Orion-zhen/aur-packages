@@ -1,0 +1,5 @@
+["opencode-notifier"]
+source = "git"
+git = "https://github.com/mohak34/opencode-notifier.git"
+include_regex = "v.*"
+prefix = "v"

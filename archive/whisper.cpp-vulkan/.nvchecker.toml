@@ -1,0 +1,5 @@
+["whisper.cpp-vulkan"]
+source = "git"
+git = "https://github.com/ggml-org/whisper.cpp.git"
+include_regex = "v(.+)"
+prefix = "v"

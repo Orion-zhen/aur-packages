@@ -1,0 +1,42 @@
+name: Cleanup Workflow Runs
+
+on:
+  schedule:
+    - cron: 0 0 * * 1
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Delete workflow runs older than 7 days
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          cutoff="$(date -u -d '7 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
+          echo "Deleting workflow runs created before ${cutoff}"
+
+          mapfile -t run_ids < <(
+            gh api --paginate "/repos/${REPO}/actions/runs?per_page=100" \
+              --jq ".workflow_runs[] | select(.created_at < \"${cutoff}\") | .id"
+          )
+
+          if (( ${#run_ids[@]} == 0 )); then
+            echo "No workflow runs older than 7 days."
+            exit 0
+          fi
+
+          for run_id in "${run_ids[@]}"; do
+            echo "Deleting workflow run ${run_id}"
+            gh api --method DELETE "/repos/${REPO}/actions/runs/${run_id}"
+          done
+
+          echo "Deleted ${#run_ids[@]} workflow run(s)."

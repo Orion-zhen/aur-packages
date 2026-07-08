@@ -1,0 +1,353 @@
+name: Update AUR Packages
+
+on:
+  schedule:
+    - cron: 0 0 * * *
+  push:
+    branches:
+      - main
+    paths:
+      - packages/**
+  workflow_dispatch:
+    inputs:
+      force-push:
+        description: Force push to AUR
+        default: false
+        type: boolean
+
+env:
+  PACKAGE_ROOT: packages
+
+jobs:
+  generate-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.set_matrix.outputs.packages }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Generate package list
+        id: set_matrix
+        working-directory: ${{ env.PACKAGE_ROOT }}
+        run: |
+          # 使用find命令安全地查找一级子目录, 并转换为JSON数组
+          # -mindepth 1: 避免匹配到'.'当前目录
+          # -maxdepth 1: 限制只查找一级深度
+          # -type d: 只查找目录
+          # -printf '%f\n': 只打印目录的基础名称（不带'./'前缀），并用换行符分隔
+          PACKAGE_LIST=$(find . -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | jq -R . | jq -cs .)
+
+          if [[ "$PACKAGE_LIST" == "[]" ]]; then
+            echo "::notice::No packages found in '${{ env.PACKAGE_ROOT }}'. Workflow will end gracefully."
+          else
+            echo "Discovered packages: $PACKAGE_LIST"
+          fi
+          echo "packages=$PACKAGE_LIST" >> "$GITHUB_OUTPUT"
+
+
+  update-and-sync:
+    needs: generate-matrix
+    if: ${{ needs.generate-matrix.outputs.packages != '[]' }}
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJson(needs.generate-matrix.outputs.packages) }}
+
+    steps:
+      - name: Set up Arch Linux Environment
+        run: |
+          pacman -Syu --noconfirm --overwrite '*' git github-cli base-devel jq pacman-contrib nvchecker devtools
+          sed -i '/E_ROOT/d' /usr/bin/makepkg
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Update PKGBUILD
+        working-directory: ${{ env.PACKAGE_ROOT }}/${{ matrix.package }}
+        run: |
+          if [[ -f ".nvchecker.toml" ]]; then
+            echo "--> Found .nvchecker.toml in ${{ matrix.package }}, using 'pkgctl version upgrade'."
+            # 不要用 pkgctl, github actions 环境中用不了
+            # pkgctl version upgrade --verbose
+            # 使用 nvchecker 获取新版本
+            REMOTE_VERSION=$(nvchecker -c .nvchecker.toml --logger json | jq -r 'select(.version) | .version')
+
+            if [[ -z "$REMOTE_VERSION" ]]; then
+              echo "::error::Failed to get new version from nvchecker."
+              exit 1
+            fi
+
+            echo "--> Remote Version: $REMOTE_VERSION"
+
+            CURRENT_VERSION=$(grep -m1 '^pkgver=' PKGBUILD | cut -d'=' -f2)
+
+            echo "--> PKGBUILD Version: $CURRENT_VERSION"
+
+            if (( $(vercmp "$REMOTE_VERSION" "$CURRENT_VERSION") > 0 )); then
+              echo "Update available, updating PKGBUILD..."
+              
+              # 更新 PKGBUILD 文件中的 pkgver
+              sed -i "s/^pkgver=.*/pkgver=$REMOTE_VERSION/" PKGBUILD
+              echo "  - pkgver: $REMOTE_VERSION"
+              
+              # 将 pkgrel 重置为 1
+              sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+              echo "  - pkgrel reset to 1"
+              
+              # --- 运行 updpkgsums ---
+              echo "Updating Checksums..."
+              updpkgsums
+              
+              echo "Updated PKGBUILD successfully."
+            fi
+
+          else
+            echo "--> Running 'makepkg' in ${{ matrix.package }}"
+            # 使用 makepkg 通过 pkgver() 函数更新版本号
+            makepkg --nobuild --nodeps
+          fi
+
+      - name: Check for PKGBUILD changes
+        id: check_changes
+        working-directory: ${{ env.PACKAGE_ROOT }}/${{ matrix.package }}
+        run: |
+          echo "--> Checking PKGBUILD changes for ${{ matrix.package }}..."
+
+          # 1. 使用 git hash-object 计算本地 PKGBUILD 的SHA哈希值
+          LOCAL_SHA=$(git hash-object PKGBUILD)
+          echo "  - Local  file SHA: ${LOCAL_SHA}"
+
+          # 2. 检查本次运行是否修改了 PKGBUILD。GitHub 提交会在汇总 job 中统一完成。
+          if ! git diff --quiet -- PKGBUILD; then
+            echo "  - Local PKGBUILD changed. It will be included in the batched GitHub commit."
+            echo "push_to_github=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "  - No local PKGBUILD changes. GitHub sync will be skipped for this package."
+          fi
+
+          # 3. 检查 AUR 上的 PKGBUILD
+          if git clone https://aur.archlinux.org/${{ matrix.package }}.git aur-tmp &>/dev/null; then
+            # 如果成功克隆
+            if [[ -f aur-tmp/PKGBUILD ]]; then
+              # 如果存在 PKGBUILD 文件, 则检查 sha
+              AUR_SHA=$(git hash-object aur-tmp/PKGBUILD)
+              echo "  - AUR file SHA: ${AUR_SHA}"
+              # 这里使用等于来检查, 是因为必须保证 AUR 上的软件包都与本仓库中的严格同步
+              if [[ "${LOCAL_SHA}" != "${AUR_SHA}" ]]; then
+                echo "  - SHAs do not match. Change detected."
+                echo "publish_to_aur=true" >> "$GITHUB_OUTPUT"
+              else
+                echo "  - SHAs match. No changes detected. Publish will be skipped."
+              fi
+            else
+              # 一般来说, 如果 AUR 上不存在软件包, 克隆下来的是个空仓库
+              echo "  - Empty AUR repository."
+              echo "publish_to_aur=true" >> "$GITHUB_OUTPUT"
+            fi
+            rm -rf aur-tmp
+          else
+            echo "  - Package does not exist on AUR yet."
+            echo "publish_to_aur=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Get version info
+        id: get_version_info
+        if: ${{ steps.check_changes.outputs.push_to_github || steps.check_changes.outputs.publish_to_aur }}
+        working-directory: ${{ env.PACKAGE_ROOT }}/${{ matrix.package }}
+        run: |
+          # 从更新后的PKGBUILD中提取版本和发布号
+          PKGNAME=$(grep -m1 '^pkgname=' PKGBUILD | cut -d'=' -f2)
+          NEW_VERSION=$(grep -m1 '^pkgver=' PKGBUILD | cut -d'=' -f2)
+          NEW_PKGREL=$(grep -m1 '^pkgrel=' PKGBUILD | cut -d'=' -f2)
+          COMMIT_MSG=":bookmark: Bump ${PKGNAME} version to ${NEW_VERSION}-${NEW_PKGREL}"
+          echo "commit_msg=$COMMIT_MSG" >> "$GITHUB_OUTPUT"
+          echo "--> Generated commit message: ${COMMIT_MSG}"
+
+      - name: Upload changed PKGBUILD
+        if: ${{ steps.check_changes.outputs.push_to_github }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: pkgbuild-${{ matrix.package }}
+          path: ${{ env.PACKAGE_ROOT }}/${{ matrix.package }}/PKGBUILD
+          retention-days: 1
+
+      - name: Publish to AUR
+        if: ${{ inputs.force-push || steps.check_changes.outputs.publish_to_aur }}
+        uses: KSXGitHub/github-actions-deploy-aur@v4.1.2
+        with:
+          pkgname: ${{ matrix.package }}
+          pkgbuild: ${{ env.PACKAGE_ROOT }}/${{ matrix.package }}/PKGBUILD
+          commit_username: Orion
+          commit_email: github-action-bot@no-reply.com
+          commit_message: ${{ steps.get_version_info.outputs.commit_msg || 'Force Update' }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+
+  sync-github:
+    needs: update-and-sync
+    if: ${{ always() && needs.update-and-sync.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Download changed PKGBUILDs
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: pkgbuild-*
+          path: .aur-updates
+
+      - name: Apply changed PKGBUILDs
+        id: apply_changes
+        env:
+          PACKAGE_ROOT: ${{ env.PACKAGE_ROOT }}
+        run: |
+          shopt -s nullglob
+          UPDATED_PACKAGES=()
+
+          for artifact_dir in .aur-updates/pkgbuild-*; do
+            package="${artifact_dir##*/pkgbuild-}"
+            pkgbuild="${artifact_dir}/PKGBUILD"
+
+            if [[ ! -f "$pkgbuild" ]]; then
+              continue
+            fi
+
+            echo "--> Applying PKGBUILD update for ${package}"
+            cp "$pkgbuild" "${PACKAGE_ROOT}/${package}/PKGBUILD"
+            UPDATED_PACKAGES+=("$package")
+          done
+
+          if [[ "${#UPDATED_PACKAGES[@]}" -eq 0 ]]; then
+            echo "No changed PKGBUILD artifacts found."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git diff --quiet -- "$PACKAGE_ROOT"; then
+            echo "Downloaded artifacts do not change the checkout."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          {
+            echo "updated_packages<<EOF"
+            printf '%s\n' "${UPDATED_PACKAGES[@]}"
+            echo "EOF"
+            echo "has_changes=true"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Commit batched PKGBUILD updates with GitHub signing
+        if: ${{ steps.apply_changes.outputs.has_changes == 'true' }}
+        uses: actions/github-script@v9
+        env:
+          PACKAGE_ROOT: ${{ env.PACKAGE_ROOT }}
+          UPDATED_PACKAGES: ${{ steps.apply_changes.outputs.updated_packages }}
+        with:
+          script: |
+            const fs = require('fs');
+
+            const packageRoot = process.env.PACKAGE_ROOT;
+            const updatedPackages = process.env.UPDATED_PACKAGES
+              .split(/\r?\n/)
+              .map((name) => name.trim())
+              .filter(Boolean);
+
+            if (updatedPackages.length === 0) {
+              core.info('No updated packages found.');
+              return;
+            }
+
+            const branchName = process.env.GITHUB_REF_NAME;
+            const repositoryNameWithOwner = `${context.repo.owner}/${context.repo.repo}`;
+            const refName = `refs/heads/${branchName}`;
+
+            const head = await github.graphql(`
+              query($owner: String!, $repo: String!, $refName: String!) {
+                repository(owner: $owner, name: $repo) {
+                  ref(qualifiedName: $refName) {
+                    target {
+                      ... on Commit {
+                        oid
+                      }
+                    }
+                  }
+                }
+              }
+            `, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              refName,
+            });
+
+            const expectedHeadOid = head.repository.ref?.target?.oid;
+            if (!expectedHeadOid) {
+              throw new Error(`Could not resolve ${refName}.`);
+            }
+
+            const additions = updatedPackages.map((packageName) => {
+              const filePath = `${packageRoot}/${packageName}/PKGBUILD`;
+
+              if (!fs.existsSync(filePath)) {
+                throw new Error(`Expected updated PKGBUILD does not exist: ${filePath}`);
+              }
+
+              return {
+                path: filePath,
+                contents: fs.readFileSync(filePath).toString('base64'),
+              };
+            });
+
+            const body = [
+              'Updated packages:',
+              ...updatedPackages.map((packageName) => `- ${packageName}`),
+            ].join('\n');
+
+            const result = await github.graphql(`
+              mutation(
+                $repositoryNameWithOwner: String!,
+                $branchName: String!,
+                $expectedHeadOid: GitObjectID!,
+                $additions: [FileAddition!]!,
+                $body: String!
+              ) {
+                createCommitOnBranch(input: {
+                  branch: {
+                    repositoryNameWithOwner: $repositoryNameWithOwner,
+                    refName: $branchName
+                  },
+                  message: {
+                    headline: ":bookmark: Bump AUR package versions",
+                    body: $body
+                  },
+                  fileChanges: {
+                    additions: $additions
+                  },
+                  expectedHeadOid: $expectedHeadOid
+                }) {
+                  commit {
+                    oid
+                    url
+                  }
+                }
+              }
+            `, {
+              repositoryNameWithOwner,
+              branchName,
+              expectedHeadOid,
+              additions,
+              body,
+            });
+
+            const commit = result.createCommitOnBranch.commit;
+            core.info(`Created signed GitHub commit: ${commit.oid}`);
+            core.info(commit.url);

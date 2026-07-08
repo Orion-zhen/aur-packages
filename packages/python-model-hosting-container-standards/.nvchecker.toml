@@ -1,0 +1,5 @@
+["python-model-hosting-container-standards"]
+source = "git"
+git = "https://github.com/aws/model-hosting-container-standards.git"
+include_regex = "v\\d+\\.\\d+\\.\\d+"
+prefix = "v"
