@@ -1,0 +1,5 @@
+["pi-web"]
+source = "git"
+git = "https://github.com/agegr/pi-web.git"
+include_regex = "v\\d+\\.\\d+\\.\\d+"
+prefix = "v"
