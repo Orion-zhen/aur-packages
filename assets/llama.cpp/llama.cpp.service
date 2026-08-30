@@ -4,10 +4,41 @@ After=syslog.target network.target local-fs.target remote-fs.target nss-lookup.t
 
 [Service]
 Type=simple
+User=llamacpp
+Group=llamacpp
+SupplementaryGroups=render video
+UMask=0007
+
+Environment=HOME=/var/lib/llama.cpp
+Environment=XDG_CACHE_HOME=/var/cache/llama.cpp
 EnvironmentFile=/etc/conf.d/llama.cpp
+ExecCondition=/usr/bin/test -n "${LLAMA_ARGS}"
+WorkingDirectory=/var/lib/llama.cpp
 ExecStart=/usr/bin/llama-server $LLAMA_ARGS
 ExecReload=/bin/kill -s HUP $MAINPID
 Restart=on-failure
+RestartSec=5s
+
+# Keep model state, downloads, and Unix sockets inside package-managed paths.
+ReadWritePaths=/var/lib/llama.cpp /var/cache/llama.cpp /run/llama.cpp
+
+# llama-server needs access to GPU devices, but no elevated capabilities.
+AmbientCapabilities=
+CapabilityBoundingSet=
+LimitMEMLOCK=infinity
+LockPersonality=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictSUIDSGID=yes
 
 [Install]
 WantedBy=multi-user.target

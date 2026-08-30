@@ -1,0 +1,3 @@
+u llamacpp - "llama.cpp service user" /var/lib/llama.cpp /usr/bin/nologin
+m llamacpp render
+m llamacpp video
