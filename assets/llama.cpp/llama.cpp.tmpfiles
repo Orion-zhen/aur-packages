@@ -1,0 +1,3 @@
+d /var/lib/llama.cpp   0750 llamacpp llamacpp -
+d /var/cache/llama.cpp 0750 llamacpp llamacpp -
+d /run/llama.cpp       2770 root     llamacpp -
