@@ -3,7 +3,7 @@
 
 pkgname=llama.cpp-gfx1151
 _pkgname=${pkgname%%-gfx1151}
-pkgver=b10688
+pkgver=b10705
 pkgrel=2
 pkgdesc="Port of Facebook's LLaMA model in C/C++ (Optimized for gfx1151, ROCm + Vulkan)"
 arch=(x86_64)
@@ -56,6 +56,7 @@ sha256sums=('88b388d1970313f4bef517012beadb9b579741b37547f6b3fdbedfaf70bf8a9a'
             'bd43b307d55a74bc64b88d95e1f37d0b12ddd2935563fc893835a91e2b8c10b5'
             '8349878d7e61819fe3da6e8a25c46c7dd66592c9a5736a7f66eb475c7a51068c'
             '027600188395ed3d721ed6f32c6fa954138fb25212154ceeadc2ff16076b1194')
+
 
 prepare() {
   ln -sf "${_pkgname}-${pkgver}" llama.cpp
