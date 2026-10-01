@@ -1,5 +1,5 @@
 ["opencode-notifier"]
 source = "git"
 git = "https://github.com/mohak34/opencode-notifier.git"
-include_regex = "v.*"
+include_regex = "v\\d+\\.\\d+\\.\\d+"
 prefix = "v"
