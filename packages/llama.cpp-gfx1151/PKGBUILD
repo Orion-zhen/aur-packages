@@ -4,7 +4,7 @@
 pkgname=llama.cpp-gfx1151
 _pkgname=${pkgname%%-gfx1151}
 pkgver=b12464
-pkgrel=1
+pkgrel=2
 pkgdesc="Port of Facebook's LLaMA model in C/C++ (Optimized for gfx1151, ROCm + Vulkan)"
 arch=(x86_64)
 url='https://github.com/ggml-org/llama.cpp'
@@ -64,7 +64,7 @@ prepare() {
   # Tailwind v4's oxide scanner walks up looking for the nearest .git to anchor
   # .gitignore lookup. In AUR helpers (yay/paru) the parent .git is the AUR
   # clone, whose .gitignore is `*` + an allowlist for PKGBUILD/.SRCINFO. That
-  # rule ignores tools/ui/src/lib/**/*.svelte, so Tailwind scans zero files and
+  # rule ignores ui/apps/chat/src/lib/**/*.svelte, so Tailwind scans zero files and
   # the built bundle.css ships without any utility classes. An empty .git in
   # the extracted source tree stops the upward walk before that point.
   mkdir -p "${_pkgname}/.git"
@@ -73,7 +73,7 @@ prepare() {
 }
 
 build() {
-  pushd "${_pkgname}/tools/ui"
+  pushd "${_pkgname}/ui/apps/chat"
   npm ci
   npm run build
   popd
@@ -96,7 +96,7 @@ build() {
     -DBUILD_SHARED_LIBS=ON
     -DLLAMA_BUILD_TESTS=OFF
     -DLLAMA_USE_SYSTEM_GGML=OFF
-    -DLLAMA_BUILD_WEBUI=ON
+    -DLLAMA_BUILD_UI=ON
     -DGGML_ALL_WARNINGS=OFF
     -DGGML_ALL_WARNINGS_3RD_PARTY=OFF
     -DGGML_BUILD_EXAMPLES=OFF
